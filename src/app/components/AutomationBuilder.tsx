@@ -5,6 +5,7 @@ import {
   addEdge,
   Background,
   Controls,
+  Edge,
   MiniMap,
   NodeTypes,
   OnConnect,
@@ -19,24 +20,73 @@ import { useDnD } from "../contexts/DnDContext";
 
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
-import EmailNode from "./nodes/EmailNode";
+import DefaultNode from "./nodes/DefaultNode";
+import { SetNodeNamePopup } from "./SetNodeNamePopup";
+import { AppNode } from "./nodes/nodes";
+import { closeModal, openedAtom, openModal } from "./SetNodeNamePopupStore";
+import { useAtomValue } from "jotai";
+import { useHasFlowDataChanged } from "../hooks/useHasFlowDataChanged";
+import throttle from "lodash/throttle";
 
 let id = 0;
 const getId = () => `dndnode_${id++}`;
 
 // list of possible node types
 const nodeTypes: NodeTypes = {
-  email: EmailNode,
+  input: DefaultNode,
+  default: DefaultNode,
+  output: DefaultNode,
+};
+
+const updateData = async (nodes: AppNode[], edges: Edge[]) => {
+  const data = await fetch("/api/automation", {
+    method: "PUT",
+    body: JSON.stringify({ nodes, edges }),
+  });
+  if (data.ok === true) {
+    console.info("the data was updated successfully");
+  } else {
+    console.error("the data was not updated");
+  }
 };
 
 const AutomationBuilder = () => {
   const reactFlowWrapper = useRef(null);
+  const enableAutoSave = useRef(false);
+  const updateDataThrottle = useRef(
+    throttle(updateData, 2000, { leading: false })
+  );
 
   const { screenToFlowPosition } = useReactFlow();
   const { type } = useDnD();
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const hasFlowDataChanged = useHasFlowDataChanged(
+    nodes,
+    edges,
+    enableAutoSave.current
+  );
+  const opened = useAtomValue(openedAtom);
+
+  const onNameChanged = useCallback((name: string, editableNodeId: string | undefined) => {
+    if (editableNodeId) {
+      setNodes((nodesState) => {
+        return nodesState.map((node) =>
+          node.id === editableNodeId
+            ? {
+                ...node,
+                data: {
+                  label: name,
+                },
+              }
+            : node
+        );
+      });
+
+      closeModal();
+    }
+  }, [setNodes, closeModal]);
 
   // we load the data from the server on mount
   useEffect(() => {
@@ -45,9 +95,18 @@ const AutomationBuilder = () => {
       const automation = await data.json();
       setNodes(automation.nodes);
       setEdges(automation.edges);
+      enableAutoSave.current = true;
     };
     getData();
   }, [setNodes, setEdges]);
+
+  useEffect(() => {
+    if (!hasFlowDataChanged) {
+      return;
+    }
+
+    updateDataThrottle.current(nodes, edges);
+  }, [hasFlowDataChanged, nodes, edges]);
 
   // various callbacks
   const onConnect: OnConnect = useCallback(
@@ -73,7 +132,7 @@ const AutomationBuilder = () => {
         x: event.clientX,
         y: event.clientY,
       });
-      const newNode = {
+      const newNode: AppNode = {
         id: getId(),
         type,
         position,
@@ -81,6 +140,7 @@ const AutomationBuilder = () => {
       };
 
       setNodes((nds) => [...nds, newNode]);
+      openModal(newNode, "create");
     },
     [screenToFlowPosition, type, setNodes]
   );
@@ -106,6 +166,7 @@ const AutomationBuilder = () => {
         </ReactFlow>
       </div>
       <Sidebar />
+      {opened && <SetNodeNamePopup onNameChanged={onNameChanged} />}
     </div>
   );
 };

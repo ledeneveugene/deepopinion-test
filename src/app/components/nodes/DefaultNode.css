@@ -1,0 +1,19 @@
+.react-flow__node-input {
+  background-color: chartreuse;
+}
+.react-flow__node-output {
+  background-color: aqua;
+}
+
+.default-node {
+  position: relative;
+  margin: -10px;
+  padding: 10px;
+}
+
+.default-node .edit-icon {
+  position: absolute;
+  right: 0px;
+  top: 0px;
+  cursor: pointer;
+}
